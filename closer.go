@@ -40,7 +40,7 @@ type closer struct {
 	tasks             tasks
 	mu                sync.Mutex
 	log               *slog.Logger
-	cfg               Config
+	cfg               *Config
 }
 
 // New create or returns instance of closer (singleton) and start os.Interrupt signal monitoring
@@ -48,7 +48,7 @@ type closer struct {
 // default config:
 //   - totalDuration: infinity
 //   - funcDuration: infinity
-func New(log *slog.Logger, cfg Config) Closer {
+func New(log *slog.Logger, cfg *Config) Closer {
 	if cfg.TotalTimeout < 0 {
 		cfg.TotalTimeout = 0
 	}
