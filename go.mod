@@ -1,3 +1,3 @@
-module github.com/ttrtcixy/closer
+module github.com/ttrtcixy/task-closer
 
 go 1.25.5
