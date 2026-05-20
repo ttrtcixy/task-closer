@@ -23,8 +23,10 @@ type Closer interface {
 
 // Config for closer
 type Config struct {
+	// TotalTimeout - time limit to complete all tasks, default == 0 (infinity)
 	TotalTimeout time.Duration
-	FuncTimeout  time.Duration
+	// FuncTimeout - time limit to complete a task, default == 0 (infinity)
+	FuncTimeout time.Duration
 }
 
 type task struct {
@@ -43,15 +45,12 @@ type closer struct {
 	cfg               *Config
 }
 
-// New create or returns instance of closer (singleton) and start os.Interrupt signal monitoring
-//
-// default config:
-//   - totalDuration: infinity
-//   - funcDuration: infinity
+// New create or returns instance of closer
 func New(log *slog.Logger, cfg *Config) Closer {
 	if cfg.TotalTimeout < 0 {
 		cfg.TotalTimeout = 0
 	}
+
 	if cfg.FuncTimeout < 0 {
 		cfg.FuncTimeout = 0
 	}
@@ -65,10 +64,12 @@ func New(log *slog.Logger, cfg *Config) Closer {
 // Add adding a task to close
 func (c *closer) Add(name string, close func(ctx context.Context) error) {
 	c.mu.Lock()
+
 	c.tasks = append(c.tasks, task{
 		name:  name,
 		close: close,
 	})
+
 	c.mu.Unlock()
 }
 
@@ -76,11 +77,14 @@ func (c *closer) Add(name string, close func(ctx context.Context) error) {
 // Runtime errors are logged using the supplied logger.
 func (c *closer) Close() {
 	c.mu.Lock()
+
 	tasks := slices.Clone(c.tasks)
+
 	c.mu.Unlock()
 
 	if len(tasks) == 0 {
 		c.log.LogAttrs(nil, slog.LevelInfo, "No tasks to close")
+
 		return
 	}
 
@@ -97,32 +101,58 @@ func (c *closer) Close() {
 	c.log.LogAttrs(nil, slog.LevelInfo, "Closer is starting to close tasks", slog.Int("task_count", len(tasks)))
 
 	timer := time.Now()
+
 	for i := len(tasks) - 1; i >= 0; i-- {
 		if ctx.Err() != nil { // check global timeout
 			c.failureLog(ctx, i)
+
 			return
 		}
 
 		task := tasks[i]
+
 		if err := c.doTask(ctx, task); err != nil {
 			if errors.Is(err, errGlobalTimeoutExceeded) { // if the global timeout expired while executing the task
-				c.log.LogAttrs(nil, slog.LevelError, "Unfinished task", slog.String("task_name", task.name), slog.String("error", err.Error()))
+				c.log.LogAttrs(
+					nil,
+					slog.LevelError,
+					"Unfinished task",
+					slog.String("task_name", task.name),
+					slog.String("error", err.Error()),
+				)
+
 				c.failureLog(ctx, i-1)
+
 				return
 			}
 
 			c.closeErrsCount++
 
 			if errors.Is(err, errFuncTimeoutExceeded) {
-				c.log.LogAttrs(nil, slog.LevelError, "Unfinished task", slog.String("task_name", task.name), slog.String("error", err.Error()))
+				c.log.LogAttrs(
+					nil,
+					slog.LevelError,
+					"Unfinished task",
+					slog.String("task_name", task.name),
+					slog.String("error", err.Error()),
+				)
+
 				continue
 			}
 
-			c.log.LogAttrs(nil, slog.LevelError, "Task error", slog.String("task_name", task.name), slog.String("error", err.Error()))
+			c.log.LogAttrs(
+				nil,
+				slog.LevelError,
+				"Task error",
+				slog.String("task_name", task.name),
+				slog.String("error", err.Error()),
+			)
+
 			continue
 		}
 
 		c.closeSuccessCount++
+
 		c.log.LogAttrs(nil, slog.LevelInfo, "Task complete", slog.String("task_name", task.name))
 	}
 
@@ -138,6 +168,7 @@ func (c *closer) doTask(globalCtx context.Context, task task) (err error) {
 
 	if c.cfg.FuncTimeout != 0 {
 		fnCtx, cancel = context.WithTimeout(globalCtx, c.cfg.FuncTimeout)
+
 		defer cancel()
 	}
 
@@ -145,10 +176,13 @@ func (c *closer) doTask(globalCtx context.Context, task task) (err error) {
 		defer func() {
 			if p := recover(); p != nil {
 				c.log.LogAttrs(nil, slog.LevelError, "closer.doTask() - panic when closing a task")
+
 				done <- errors.New("panic")
+
 				return
 			}
 		}()
+
 		done <- task.close(fnCtx)
 	}()
 
@@ -157,6 +191,7 @@ func (c *closer) doTask(globalCtx context.Context, task task) (err error) {
 		if globalCtx.Err() != nil {
 			return errGlobalTimeoutExceeded
 		}
+
 		return errFuncTimeoutExceeded
 	case err := <-done:
 		return err
@@ -172,6 +207,7 @@ func (c *closer) successLog(timer time.Time) {
 	if errCount > 0 {
 		c.log.LogAttrs(nil, slog.LevelError, "Closer finished with errors",
 			slog.Duration("execution_time", duration),
+
 			slog.Int("failed_tasks_count", errCount),
 		)
 	} else {
@@ -184,10 +220,17 @@ func (c *closer) successLog(timer time.Time) {
 // failureLog
 func (c *closer) failureLog(ctx context.Context, lastIdx int) {
 	tasks := c.tasks
+
 	successCloseCount := c.closeSuccessCount
 
 	for i := lastIdx; i >= 0; i-- {
-		c.log.LogAttrs(nil, slog.LevelError, "Unprocessed task", slog.String("task_name", tasks[i].name), slog.String("error", errGlobalTimeoutExceeded.Error()))
+		c.log.LogAttrs(
+			nil,
+			slog.LevelError,
+			"Unprocessed task",
+			slog.String("task_name", tasks[i].name),
+			slog.String("error", errGlobalTimeoutExceeded.Error()),
+		)
 	}
 
 	c.log.LogAttrs(nil, slog.LevelError,
