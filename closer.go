@@ -23,8 +23,8 @@ type Closer interface {
 
 // Config for closer
 type Config struct {
-	TotalTimeout time.Duration `env:"CLOSER_TOTAL_TIMEOUT"`
-	FuncTimeout  time.Duration `env:"CLOSER_FUNC_TIMEOUT"`
+	TotalTimeout time.Duration
+	FuncTimeout  time.Duration
 }
 
 type task struct {
